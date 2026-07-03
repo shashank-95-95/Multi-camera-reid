@@ -1,0 +1,5 @@
+This directory is generated at runtime.
+
+Contents:
+- tracked_video.mp4    — annotated output video
+- tracking_results.json — structured tracking log
