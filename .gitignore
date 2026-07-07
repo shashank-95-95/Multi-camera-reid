@@ -1,5 +1,20 @@
 # Generated outputs
 outputs/
 
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+
+# Logs and temp
+*.log
+*.tmp
+*.temp
+
 # Sample videos
 sample_videos/
