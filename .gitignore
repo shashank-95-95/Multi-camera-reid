@@ -18,3 +18,5 @@ venv/
 
 # Sample videos
 sample_videos/
+
+node_modules/
