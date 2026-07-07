@@ -1,0 +1,6 @@
+{
+  "name": "Person Re-ID Dashboard",
+  "description": "A full-stack dashboard for managing and monitoring multi-camera person re-identification jobs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
