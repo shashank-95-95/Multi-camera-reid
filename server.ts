@@ -4,17 +4,22 @@ import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs';
 import { spawn } from 'child_process';
+import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const MODEL_ROOT = path.resolve(process.cwd(), 'Multi-camera-reid');
+const PROJECT_ROOT = __dirname;
+const MODEL_ROOT = PROJECT_ROOT;
 
 app.use(express.json());
 
 // Set up file uploads
-const uploadsDir = path.join(process.cwd(), 'uploads');
-const resultsDir = path.join(process.cwd(), 'results');
+const uploadsDir = path.join(PROJECT_ROOT, 'uploads');
+const resultsDir = path.join(PROJECT_ROOT, 'results');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 if (!fs.existsSync(resultsDir)) fs.mkdirSync(resultsDir, { recursive: true });
 
@@ -64,7 +69,7 @@ function writeResultManifest(jobId: string, outputDirectory: string, job: Job) {
       if (entry.isDirectory()) {
         walk(fullPath);
       } else if (entry.isFile()) {
-        files.push(path.relative(process.cwd(), fullPath));
+        files.push(path.relative(PROJECT_ROOT, fullPath));
       }
     }
   };
@@ -94,8 +99,8 @@ function startRealProcessing(jobId: string, videoPaths: string[], config: Record
   pushLog(job, 'Starting Python Re-ID pipeline...');
   pushLog(job, `Using model root: ${MODEL_ROOT}`);
 
-  const venvPython = path.join(process.cwd(), '.venv', 'Scripts', 'python.exe');
-  const pythonExecutable = fs.existsSync(venvPython) ? venvPython : (process.platform === 'win32' ? 'python' : 'python3');
+  const venvPython = path.join(PROJECT_ROOT, '.venv', 'Scripts', 'python.exe');
+  const pythonExecutable = process.env.PYTHON_EXECUTABLE || (fs.existsSync(venvPython) ? venvPython : (process.platform === 'win32' ? 'python' : 'python3'));
   const outputDirectory = path.join(MODEL_ROOT, 'outputs', jobId);
   const args = [
     'main.py',
@@ -130,13 +135,15 @@ function startRealProcessing(jobId: string, videoPaths: string[], config: Record
     }
   }, 1500);
 
+  pushLog(job, `Launching Python: ${pythonExecutable} ${args.join(' ')}`);
+
   const child = spawn(pythonExecutable, args, {
     cwd: MODEL_ROOT,
     env: {
       ...process.env,
       PYTHONPATH: `${MODEL_ROOT}`,
     },
-    shell: true,
+    shell: false,
   });
 
   child.stdout.on('data', (chunk: Buffer) => {

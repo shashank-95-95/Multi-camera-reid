@@ -1,0 +1,10 @@
+{
+  "jobId": "24ad8962-038f-4216-8298-8b4c24a24ff6",
+  "outputDirectory": "D:\\Person_Re_Identification\\Multi-camera-reid\\outputs\\24ad8962-038f-4216-8298-8b4c24a24ff6",
+  "generatedAt": "2026-07-08T14:15:50.147Z",
+  "files": [
+    "outputs\\24ad8962-038f-4216-8298-8b4c24a24ff6\\camera_1\\tracked_video.mp4",
+    "outputs\\24ad8962-038f-4216-8298-8b4c24a24ff6\\camera_1\\tracking_results.json"
+  ],
+  "summary": "Person Re-ID processing completed successfully."
+}
