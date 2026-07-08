@@ -1,5 +1,7 @@
 # Generated outputs
 outputs/
+results/
+uploads/
 
 # Python cache
 __pycache__/
