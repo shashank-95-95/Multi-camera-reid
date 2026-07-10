@@ -11,11 +11,26 @@ frames and writes the annotated output.
 
 import json
 import os
+import platform
+import subprocess
 from pathlib import Path
 from typing import List, Optional
 
 import cv2
 import numpy as np
+
+# --- FIREBASE IMPORTS ---
+import firebase_admin
+from firebase_admin import credentials, firestore
+
+# Initialize Firebase only once to prevent crashes
+if not firebase_admin._apps:
+    # Make sure this JSON file is in your root folder!
+    cred = credentials.Certificate("firebase_credentials.json")
+    firebase_admin.initialize_app(cred)
+
+db = firestore.client()
+# ------------------------
 
 
 class VideoProcessor:
@@ -33,25 +48,10 @@ class VideoProcessor:
         output_dir: str = "outputs",
         camera_id: Optional[int] = None,
     ) -> None:
-        """Initialise the video processor.
-
-        Args:
-            video_path: Path to the input video file.
-            output_dir: Directory for output video and JSON.  Created
-                automatically if it doesn't exist.
-            camera_id: Optional camera identifier.  When set, every
-                tracking-result JSON entry includes a ``camera_id``
-                field (required for Phase 2 multi-camera output).
-
-        Raises:
-            FileNotFoundError: If *video_path* does not exist.
-            RuntimeError: If the video cannot be opened.
-        """
+        
         # --- Validate input path ---
         if not os.path.isfile(video_path):
-            raise FileNotFoundError(
-                f"Video file not found: '{video_path}'"
-            )
+            raise FileNotFoundError(f"Video file not found: '{video_path}'")
 
         self.video_path = video_path
         self.output_dir = output_dir
@@ -61,85 +61,43 @@ class VideoProcessor:
         # --- Open video capture ---
         self.cap = cv2.VideoCapture(self.video_path)
         if not self.cap.isOpened():
-            raise RuntimeError(
-                f"Failed to open video: '{self.video_path}'"
-            )
+            raise RuntimeError(f"Failed to open video: '{self.video_path}'")
 
         # --- Extract video metadata ---
         self.fps: float = self.cap.get(cv2.CAP_PROP_FPS) or 30.0
         self.width: int = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height: int = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        self.total_frames: int = int(
-            self.cap.get(cv2.CAP_PROP_FRAME_COUNT)
-        )
+        self.total_frames: int = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
         # --- Initialise video writer ---
-        output_video_path = os.path.join(self.output_dir, "tracked_video.mp4")
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        self.output_video_path = os.path.join(self.output_dir, "tracked_video.mp4")
+        # avc1 is the H.264 codec that web browsers love!
+        fourcc = cv2.VideoWriter_fourcc(*"avc1")
         self.writer = cv2.VideoWriter(
-            output_video_path, fourcc, self.fps, (self.width, self.height)
+            self.output_video_path, fourcc, self.fps, (self.width, self.height)
         )
 
         if not self.writer.isOpened():
-            raise RuntimeError(
-                f"Failed to initialise video writer at "
-                f"'{output_video_path}'"
-            )
+            raise RuntimeError(f"Failed to initialise video writer at '{self.output_video_path}'")
 
-        # Storage for tracking results (written to JSON at the end)
+        # Storage for tracking results
         self._tracking_results: List[dict] = []
-
-    # ------------------------------------------------------------------
-    # Properties
-    # ------------------------------------------------------------------
 
     @property
     def frame_count(self) -> int:
-        """Return the total number of frames in the source video."""
         return self.total_frames
 
-    # ------------------------------------------------------------------
-    # Frame I/O
-    # ------------------------------------------------------------------
-
     def read_frame(self):
-        """Read the next frame from the video.
-
-        Returns:
-            A tuple ``(success, frame)`` where *success* is a bool and
-            *frame* is a NumPy BGR array (or ``None`` on failure).
-        """
         ret, frame = self.cap.read()
         return ret, frame
 
     def write_frame(self, frame: np.ndarray) -> None:
-        """Write an annotated frame to the output video.
-
-        Args:
-            frame: The annotated BGR frame.
-        """
         self.writer.write(frame)
 
-    def display_frame(
-        self, frame: np.ndarray, window_name: str = "Person Tracking"
-    ) -> bool:
-        """Show the frame in a window and handle quit keys.
-
-        Args:
-            frame: BGR image to display.
-            window_name: Title of the display window.
-
-        Returns:
-            ``True`` if the user pressed **q** or **Esc** to quit,
-            ``False`` otherwise.
-        """
+    def display_frame(self, frame: np.ndarray, window_name: str = "Person Tracking") -> bool:
         cv2.imshow(window_name, frame)
         key = cv2.waitKey(1) & 0xFF
-        return key in (ord("q"), 27)  # q or Esc
-
-    # ------------------------------------------------------------------
-    # Tracking-result persistence
-    # ------------------------------------------------------------------
+        return key in (ord("q"), 27) 
 
     def add_tracking_result(
         self,
@@ -150,18 +108,6 @@ class VideoProcessor:
         global_id: Optional[int] = None,
         reid_similarity: Optional[float] = None,
     ) -> None:
-        """Append a single tracking record.
-
-        Args:
-            frame_number: 0-indexed frame number.
-            track_id: Unique ID assigned by the tracker.
-            bbox: ``[x1, y1, x2, y2]`` bounding box.
-            confidence: Detection confidence score.
-            global_id: Optional global identity ID assigned by the
-                ReID engine (Phase 3).
-            reid_similarity: Optional cosine similarity score from
-                the ReID match (Phase 3).
-        """
         timestamp = round(frame_number / self.fps, 4)
         entry: dict = {
             "frame": frame_number,
@@ -170,35 +116,54 @@ class VideoProcessor:
             "confidence": confidence,
             "timestamp": timestamp,
         }
-        # Prepend camera_id when operating in multi-camera mode
         if self._camera_id is not None:
             entry = {"camera_id": self._camera_id, **entry}
-        # Append ReID fields when available (Phase 3)
         if global_id is not None:
             entry["global_id"] = global_id
         if reid_similarity is not None:
             entry["reid_similarity"] = round(reid_similarity, 4)
+            
         self._tracking_results.append(entry)
 
     def save_tracking_results(self) -> str:
-        """Write all accumulated tracking results to a JSON file.
-
-        Returns:
-            The absolute path to the saved JSON file.
-        """
-        output_path = os.path.join(
-            self.output_dir, "tracking_results.json"
-        )
-        with open(output_path, "w", encoding="utf-8") as f:
+        self.output_json_path = os.path.join(self.output_dir, "tracking_results.json")
+        with open(self.output_json_path, "w", encoding="utf-8") as f:
             json.dump(self._tracking_results, f, indent=2)
-        return output_path
+        return self.output_json_path
 
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
+    # --- FIREBASE & AUTO-PLAY INTEGRATIONS ---
+    def upload_to_firebase(self):
+        """Pushes a lightweight summary to the Firestore Database (Free Tier)."""
+        print(f"[Camera {self._camera_id}] Uploading tracking data to Firebase Firestore...")
+        try:
+            doc_ref = db.collection('processing_runs').document()
+            doc_ref.set({
+                'camera_id': self._camera_id,
+                'total_frames_processed': self.total_frames,
+                'total_detections': len(self._tracking_results),
+                'timestamp': firestore.SERVER_TIMESTAMP,
+                # Link directly to the saved video file for the web server
+                'video_path': self.output_video_path.replace("\\", "/") 
+            })
+            print(f"[Camera {self._camera_id}] Run summary logged to Firestore successfully!")
+        except Exception as e:
+            print(f"[Camera {self._camera_id}] Failed to upload to Firebase: {e}")
+
+    def play_output_video(self) -> None:
+        """Opens the final processed video in the system's default media player."""
+        print(f"[Camera {self._camera_id}] Opening processed video: {self.output_video_path}")
+        try:
+            if platform.system() == 'Windows':
+                os.startfile(self.output_video_path)
+            elif platform.system() == 'Darwin':  # macOS
+                subprocess.call(('open', self.output_video_path))
+            else:  # Linux
+                subprocess.call(('xdg-open', self.output_video_path))
+        except Exception as e:
+            print(f"[Camera {self._camera_id}] Could not open video automatically: {e}")
+    # ----------------------------------------
 
     def release(self) -> None:
-        """Release all OpenCV resources."""
         if self.cap is not None:
             self.cap.release()
         if self.writer is not None:

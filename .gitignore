@@ -22,3 +22,5 @@ venv/
 sample_videos/
 
 node_modules/
+
+firebase_credentials.json

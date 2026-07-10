@@ -50,6 +50,8 @@ class CameraManager:
         similarity_threshold: float = 0.75,
         reid_interval: int = 15,
         debug: bool = False,
+        auto_play: bool = False,  # <-- NEW
+        firebase: bool = False,   # <-- NEW
     ) -> None:
         """Initialise the camera manager.
 
@@ -72,6 +74,8 @@ class CameraManager:
             reid_interval: Number of frames between re-extractions
                 for cached tracks (default: 15).
             debug: If ``True``, print detailed ReID match decisions.
+            auto_play: If ``True``, automatically play the processed video.
+            firebase: If ``True``, upload results to Firebase.
 
         Raises:
             ValueError: If *video_paths* is empty.
@@ -80,6 +84,10 @@ class CameraManager:
             raise ValueError("At least one video path is required.")
 
         self._stop_requested: bool = False
+        
+        # Save the new flags so the execution strategies can use them
+        self.auto_play = auto_play
+        self.firebase = firebase
 
         # ── Phase 3: Shared ReID components ───────────────────────────
         feature_extractor = None
@@ -175,6 +183,22 @@ class CameraManager:
 
                 if result.get("quit_requested"):
                     self._stop_requested = True
+                    
+                # ── NEW: Trigger Auto-Play & Firebase ─────────────────
+                # We dynamically look for the VideoProcessor attached to the pipeline.
+                # (Assuming you saved it as self.processor or self.video_processor in CameraPipeline)
+                processor = getattr(pipeline, "processor", None) or getattr(pipeline, "video_processor", None)
+                
+                if processor:
+                    if self.firebase:
+                        processor.upload_to_firebase()
+                    if self.auto_play:
+                        processor.play_output_video()
+                else:
+                    # Just a helpful warning in case the naming convention doesn't match
+                    if self.firebase or self.auto_play:
+                        print(f"[Warning] Could not find VideoProcessor on Camera {pipeline.camera_id} to trigger cloud/playback.")
+                # ──────────────────────────────────────────────────────
 
             except FileNotFoundError as exc:
                 msg = f"Video not found — {exc}"
@@ -192,20 +216,6 @@ class CameraManager:
                 results.append(self._error_result(pipeline, msg))
 
         return results
-
-    # Future execution strategies (drop-in replacements):
-    #
-    # def run_threaded(self, max_workers: int = 4) -> List[Dict]:
-    #     from concurrent.futures import ThreadPoolExecutor, as_completed
-    #     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-    #         futures = {pool.submit(p.run): p for p in self.pipelines}
-    #         results = []
-    #         for future in as_completed(futures):
-    #             result = future.result()
-    #             results.append(result)
-    #             if result.get("quit_requested"):
-    #                 self._stop_requested = True
-    #     return sorted(results, key=lambda r: r["camera_id"])
 
     def run_all(self) -> List[Dict]:
         """Execute all pipelines using the active strategy.
