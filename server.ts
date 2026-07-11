@@ -4,19 +4,27 @@ import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs';
 import { spawn } from 'child_process';
+import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const MODEL_ROOT = path.resolve(process.cwd(), 'Multi-camera-reid');
+const PROJECT_ROOT = __dirname;
+const MODEL_ROOT = PROJECT_ROOT;
 
 app.use(express.json());
 
 // Set up file uploads
-const uploadsDir = path.join(process.cwd(), 'uploads');
-const resultsDir = path.join(process.cwd(), 'results');
+const uploadsDir = path.join(PROJECT_ROOT, 'uploads');
+const resultsDir = path.join(PROJECT_ROOT, 'results');
+const outputsDir = path.join(MODEL_ROOT, 'outputs'); 
+
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 if (!fs.existsSync(resultsDir)) fs.mkdirSync(resultsDir, { recursive: true });
+if (!fs.existsSync(outputsDir)) fs.mkdirSync(outputsDir, { recursive: true });
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadsDir),
@@ -35,6 +43,7 @@ interface Job {
   updatedAt: string;
   outputDirectory?: string;
   resultUrl?: string;
+  videoUrls?: string[]; // Array to hold URLs for all cameras
   logs: string[];
 }
 const jobs: Record<string, Job> = {};
@@ -64,7 +73,7 @@ function writeResultManifest(jobId: string, outputDirectory: string, job: Job) {
       if (entry.isDirectory()) {
         walk(fullPath);
       } else if (entry.isFile()) {
-        files.push(path.relative(process.cwd(), fullPath));
+        files.push(path.relative(PROJECT_ROOT, fullPath));
       }
     }
   };
@@ -94,9 +103,10 @@ function startRealProcessing(jobId: string, videoPaths: string[], config: Record
   pushLog(job, 'Starting Python Re-ID pipeline...');
   pushLog(job, `Using model root: ${MODEL_ROOT}`);
 
-  const venvPython = path.join(process.cwd(), '.venv', 'Scripts', 'python.exe');
-  const pythonExecutable = fs.existsSync(venvPython) ? venvPython : (process.platform === 'win32' ? 'python' : 'python3');
+  const venvPython = path.join(PROJECT_ROOT, '.venv', 'Scripts', 'python.exe');
+  const pythonExecutable = process.env.PYTHON_EXECUTABLE || (fs.existsSync(venvPython) ? venvPython : (process.platform === 'win32' ? 'python' : 'python3'));
   const outputDirectory = path.join(MODEL_ROOT, 'outputs', jobId);
+  
   const args = [
     'main.py',
     '--videos',
@@ -106,6 +116,7 @@ function startRealProcessing(jobId: string, videoPaths: string[], config: Record
     '--confidence',
     String(Number(config.confidenceThreshold ?? 0.6)),
     '--no-display',
+    '--firebase'
   ];
 
   if (parseBoolean(config.reidEnabled ?? true)) {
@@ -130,13 +141,15 @@ function startRealProcessing(jobId: string, videoPaths: string[], config: Record
     }
   }, 1500);
 
+  pushLog(job, `Launching Python: ${pythonExecutable} ${args.join(' ')}`);
+
   const child = spawn(pythonExecutable, args, {
     cwd: MODEL_ROOT,
     env: {
       ...process.env,
       PYTHONPATH: `${MODEL_ROOT}`,
     },
-    shell: true,
+    shell: false,
   });
 
   child.stdout.on('data', (chunk: Buffer) => {
@@ -170,6 +183,10 @@ function startRealProcessing(jobId: string, videoPaths: string[], config: Record
       job.progress = 100;
       job.updatedAt = new Date().toISOString();
       job.outputDirectory = outputDirectory;
+      
+      // Dynamically generate a video URL for each uploaded video (Camera 1, Camera 2, etc.)
+      job.videoUrls = videoPaths.map((_, index) => `/outputs/${jobId}/camera_${index + 1}/tracked_video.mp4`);
+      
       pushLog(job, 'Python pipeline completed successfully.');
       writeResultManifest(jobId, outputDirectory, job);
     } else {
@@ -231,6 +248,9 @@ app.get('/api/jobs/:job_id', (req, res) => {
 
 // Serve results statically
 app.use('/results', express.static(resultsDir));
+
+// Serve outputs statically so the frontend can load the generated .mp4 files
+app.use('/outputs', express.static(outputsDir));
 
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {

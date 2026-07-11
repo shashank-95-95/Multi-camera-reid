@@ -101,7 +101,9 @@ export default function JobDetail({ jobId, onBack }: { jobId: string, onBack: ()
               <CardHeader>
                 <CardTitle>Results & Output</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-4">
+                
+                {/* 1. JSON Download Button */}
                 <div className="flex items-center justify-between p-4 bg-black/40 rounded border border-white/10">
                   <div className="flex items-center space-x-3">
                     <FileJson className="h-5 w-5 text-green-500" />
@@ -116,9 +118,36 @@ export default function JobDetail({ jobId, onBack }: { jobId: string, onBack: ()
                     </a>
                   </Button>
                 </div>
+
+                {/* 2. MULTI-CAMERA VIDEO PLAYERS */}
+                {job.videoUrls && job.videoUrls.length > 0 && (
+                  <div className="space-y-4">
+                    {job.videoUrls.map((url, index) => (
+                      <div key={index} className="p-4 bg-black/40 rounded border border-white/10">
+                        <div className="flex items-center space-x-3 mb-3">
+                          <div>
+                            <div className="text-xs font-mono text-zinc-200">Camera {index + 1} Output</div>
+                            <div className="text-[10px] text-zinc-500 uppercase mt-1">tracked_video.mp4</div>
+                          </div>
+                        </div>
+                        <div className="rounded-lg overflow-hidden border border-zinc-800 bg-black">
+                          <video 
+                            controls 
+                            className="w-full h-auto max-h-[400px]"
+                            src={url}
+                          >
+                            Your browser does not support the video tag.
+                          </video>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
               </CardContent>
             </Card>
           )}
+
         </div>
 
         <div className="space-y-6">

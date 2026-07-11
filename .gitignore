@@ -1,5 +1,7 @@
 # Generated outputs
 outputs/
+results/
+uploads/
 
 # Python cache
 __pycache__/
@@ -18,3 +20,7 @@ venv/
 
 # Sample videos
 sample_videos/
+
+node_modules/
+
+firebase_credentials.json

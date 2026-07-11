@@ -10,14 +10,8 @@ Usage::
     # Without ReID (Phase 1/2 mode)
     python main.py --videos cam1.mp4 cam2.mp4
 
-    # With ReID (Phase 3)
-    python main.py --videos cam1.mp4 cam2.mp4 --reid
-
-    # Custom similarity threshold
-    python main.py --videos cam1.mp4 cam2.mp4 --reid --similarity-threshold 0.70
-
-    # Headless mode
-    python main.py --videos cam1.mp4 cam2.mp4 --reid --no-display
+    # With auto-play and firebase upload enabled
+    python main.py --videos cam1.mp4 --reid --auto-play --firebase
 """
 
 import argparse
@@ -39,15 +33,13 @@ def parse_args() -> argparse.Namespace:
         type=str,
         nargs="+",
         required=True,
-        help="Path(s) to input video file(s).  One camera pipeline "
-        "is created per video.",
+        help="Path(s) to input video file(s).  One camera pipeline is created per video.",
     )
     parser.add_argument(
         "--output",
         type=str,
         default="outputs",
-        help="Base output directory (default: outputs/).  Each camera "
-        "writes to <output>/camera_<id>/.",
+        help="Base output directory (default: outputs/). Each camera writes to <output>/camera_<id>/.",
     )
     parser.add_argument(
         "--model",
@@ -89,28 +81,36 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--reid",
         action="store_true",
-        help="Enable Person Re-Identification using OSNet.  "
-        "Requires torchreid to be installed.",
+        help="Enable Person Re-Identification using OSNet. Requires torchreid to be installed.",
     )
     parser.add_argument(
         "--similarity-threshold",
         type=float,
         default=0.75,
-        help="Minimum cosine similarity for a ReID match "
-        "(default: 0.75).  Only used when --reid is enabled.",
+        help="Minimum cosine similarity for a ReID match (default: 0.75). Only used when --reid is enabled.",
     )
     parser.add_argument(
         "--reid-interval",
         type=int,
         default=15,
-        help="Frames between ReID re-extractions per track "
-        "(default: 15).  Lower = more accurate, slower.",
+        help="Frames between ReID re-extractions per track (default: 15). Lower = more accurate, slower.",
     )
     parser.add_argument(
         "--debug",
         action="store_true",
-        help="Print detailed ReID matching decisions "
-        "(candidate rejections, match scores).",
+        help="Print detailed ReID matching decisions (candidate rejections, match scores).",
+    )
+    
+    # ── NEW: Output & Cloud Integrations ──────────────────────────────
+    parser.add_argument(
+        "--auto-play",
+        action="store_true",
+        help="Automatically open the processed video(s) in the default media player when finished.",
+    )
+    parser.add_argument(
+        "--firebase",
+        action="store_true",
+        help="Upload the tracking JSON (and video) to Firebase when processing completes.",
     )
 
     return parser.parse_args()
@@ -121,6 +121,7 @@ def main() -> None:
     args = parse_args()
 
     try:
+        # Notice we are passing the new auto_play and firebase arguments to the manager
         manager = CameraManager(
             video_paths=args.videos,
             output_dir=args.output,
@@ -134,6 +135,8 @@ def main() -> None:
             similarity_threshold=args.similarity_threshold,
             reid_interval=args.reid_interval,
             debug=args.debug,
+            auto_play=args.auto_play,   # <-- NEW
+            firebase=args.firebase      # <-- NEW
         )
 
         results = manager.run_all()

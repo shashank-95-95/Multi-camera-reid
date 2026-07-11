@@ -105,6 +105,9 @@ class CameraPipeline:
         self._display = display
         self._should_stop = should_stop or (lambda: False)
         self._window_name = f"Camera {camera_id}"
+        
+        # ── NEW: Expose the VideoProcessor so the Manager can access it
+        self.processor = None
 
         # Phase 3 — ReID components (optional, shared across cameras)
         self._feature_extractor = feature_extractor
@@ -160,7 +163,8 @@ class CameraPipeline:
         tracker = DeepSortTracker()
 
         print(f"{tag} Opening video: {self.video_path}")
-        video = VideoProcessor(
+        # ── CHANGED: Save the VideoProcessor to self.processor
+        self.processor = VideoProcessor(
             video_path=self.video_path,
             output_dir=self.output_dir,
             camera_id=self.camera_id,
@@ -169,8 +173,8 @@ class CameraPipeline:
         reid_label = " + ReID" if self._reid_enabled else ""
         print(
             f"{tag} Video — "
-            f"{video.width}×{video.height} @ {video.fps:.1f} FPS, "
-            f"{video.total_frames} frames{reid_label}"
+            f"{self.processor.width}×{self.processor.height} @ {self.processor.fps:.1f} FPS, "
+            f"{self.processor.total_frames} frames{reid_label}"
         )
 
         # ── 2. Frame loop ─────────────────────────────────────────────
@@ -181,7 +185,7 @@ class CameraPipeline:
 
         try:
             while not self._should_stop():
-                ret, frame = video.read_frame()
+                ret, frame = self.processor.read_frame()
                 if not ret:
                     break
 
@@ -197,7 +201,7 @@ class CameraPipeline:
 
                 # --- Record tracking results ---
                 for track in tracks:
-                    video.add_tracking_result(
+                    self.processor.add_tracking_result(
                         frame_number=frame_number,
                         track_id=track["track_id"],
                         bbox=track["bbox"],
@@ -211,17 +215,17 @@ class CameraPipeline:
                 draw_frame_info(
                     frame,
                     frame_number=frame_number,
-                    total_frames=video.total_frames,
+                    total_frames=self.processor.total_frames,
                     active_tracks=len(tracks),
                     fps=processing_fps,
                 )
 
                 # --- Write output ---
-                video.write_frame(frame)
+                self.processor.write_frame(frame)
 
                 # --- Display (unless headless) ---
                 if self._display:
-                    if video.display_frame(frame, self._window_name):
+                    if self.processor.display_frame(frame, self._window_name):
                         print(f"{tag} Quit requested by user.")
                         quit_requested = True
                         break
@@ -239,7 +243,7 @@ class CameraPipeline:
                 if frame_number % 100 == 0:
                     print(
                         f"{tag} Processed "
-                        f"{frame_number}/{video.total_frames} frames "
+                        f"{frame_number}/{self.processor.total_frames} frames "
                         f"({processing_fps:.1f} FPS)"
                     )
 
@@ -248,8 +252,9 @@ class CameraPipeline:
             quit_requested = True
 
         finally:
-            json_path = video.save_tracking_results()
-            video.release()
+            # ── CHANGED: Use self.processor
+            json_path = self.processor.save_tracking_results()
+            self.processor.release()
 
             result["frames_processed"] = frame_number
             result["quit_requested"] = quit_requested
@@ -404,4 +409,3 @@ class CameraPipeline:
                     "similarity": sim_rounded,
                     "last_extract_frame": frame_number,
                 }
-
